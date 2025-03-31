@@ -1,4 +1,4 @@
-module personal
+module cbz_to
 
 go 1.20
 
