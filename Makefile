@@ -4,16 +4,16 @@ BINARY_NAME=cbz_to
 all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64
 
 build-linux-amd64:
-	GOOS=linux GOARCH=amd64 go build -o $(BINARY_NAME)-linux-amd64 main.go
+	GOOS=linux GOARCH=amd64 go build -o $(BINARY_NAME)-linux-amd64 ${BINARY_NAME}.go
 
 build-linux-arm64:
-	GOOS=linux GOARCH=arm64 go build -o $(BINARY_NAME)-linux-arm64 main.go
+	GOOS=linux GOARCH=arm64 go build -o $(BINARY_NAME)-linux-arm64 ${BINARY_NAME}.go
 
 build-darwin-amd64:
-	GOOS=darwin GOARCH=amd64 go build -o $(BINARY_NAME)-darwin-amd64 main.go
+	GOOS=darwin GOARCH=amd64 go build -o $(BINARY_NAME)-darwin-amd64 ${BINARY_NAME}.go
 
 build-darwin-arm64:
-	GOOS=darwin GOARCH=arm64 go build -o $(BINARY_NAME)-darwin-arm64 main.go
+	GOOS=darwin GOARCH=arm64 go build -o $(BINARY_NAME)-darwin-arm64 ${BINARY_NAME}.go
 
 clean:
 	rm -f $(BINARY_NAME)-linux-amd64 $(BINARY_NAME)-linux-arm64 $(BINARY_NAME)-darwin-amd64 $(BINARY_NAME)-darwin-arm64
