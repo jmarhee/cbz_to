@@ -13,6 +13,7 @@ import (
 
 	"github.com/bmaupin/go-epub"
 	"github.com/jung-kurt/gofpdf"
+	"github.com/nwaples/rardecode"
 )
 
 func main() {
@@ -21,21 +22,46 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) < 1 {
-		log.Fatal("Please provide at least one CBZ file.")
+		log.Fatal("Please provide at least one CBZ or CBR file.")
 	}
 
-	for _, cbzFile := range flag.Args() {
-		switch *format {
-		case "pdf":
-			convertCBZToPDF(cbzFile)
-		case "epub":
-			convertCBZToEPUB(cbzFile)
-		case "mobi":
-			convertCBZToEPUB(cbzFile) // First convert to EPUB
-			convertEPUBToMOBI(cbzFile)
+	for _, file := range flag.Args() {
+		switch filepath.Ext(file) {
+		case ".cbz":
+			convertCBZ(file, *format)
+		case ".cbr":
+			convertCBR(file, *format)
 		default:
-			log.Fatalf("Unsupported format: %s", *format)
+			log.Fatalf("Unsupported file format: %s", filepath.Ext(file))
 		}
+	}
+}
+
+func convertCBZ(cbzFile, format string) {
+	switch format {
+	case "pdf":
+		convertCBZToPDF(cbzFile)
+	case "epub":
+		convertCBZToEPUB(cbzFile)
+	case "mobi":
+		convertCBZToEPUB(cbzFile) // First convert to EPUB
+		convertEPUBToMOBI(cbzFile)
+	default:
+		log.Fatalf("Unsupported format: %s", format)
+	}
+}
+
+func convertCBR(cbrFile, format string) {
+	switch format {
+	case "pdf":
+		convertCBRToPDF(cbrFile)
+	case "epub":
+		convertCBRToEPUB(cbrFile)
+	case "mobi":
+		convertCBRToEPUB(cbrFile) // First convert to EPUB
+		convertEPUBToMOBI(cbrFile)
+	default:
+		log.Fatalf("Unsupported format: %s", format)
 	}
 }
 
@@ -52,7 +78,14 @@ func convertCBZToPDF(cbzFile string) {
 
 	// Iterate through the files in the archive
 	for _, file := range zipReader.File {
-		if err := addImageToPDF(pdf, file); err != nil {
+		fileReader, err := file.Open()
+		if err != nil {
+			log.Printf("Failed to open file %s: %v", file.Name, err)
+			continue
+		}
+		defer fileReader.Close()
+
+		if err := addImageToPDF(pdf, file.Name, fileReader); err != nil {
 			log.Printf("Failed to add image from %s: %v", file.Name, err)
 		}
 	}
@@ -82,7 +115,14 @@ func convertCBZToEPUB(cbzFile string) {
 
 	// Iterate through the files in the archive
 	for _, file := range zipReader.File {
-		tmpFile, err := addImageToEPUB(e, file)
+		fileReader, err := file.Open()
+		if err != nil {
+			log.Printf("Failed to open file %s: %v", file.Name, err)
+			continue
+		}
+		defer fileReader.Close()
+
+		tmpFile, err := addImageToEPUB(e, file.Name, fileReader)
 		if err != nil {
 			log.Printf("Failed to add image from %s: %v", file.Name, err)
 		} else {
@@ -104,35 +144,112 @@ func convertCBZToEPUB(cbzFile string) {
 	}
 }
 
-func addImageToPDF(pdf *gofpdf.Fpdf, file *zip.File) error {
-	// Open the file inside the ZIP archive
-	fileReader, err := file.Open()
+func convertCBRToPDF(cbrFile string) {
+	// Open the CBR file as a RAR archive
+	r, err := os.Open(cbrFile)
 	if err != nil {
-		return fmt.Errorf("failed to open file %s: %w", file.Name, err)
+		log.Fatalf("Failed to open CBR file %s: %v", cbrFile, err)
 	}
-	defer fileReader.Close()
+	defer r.Close()
 
+	rardecoder, err := rardecode.NewReader(r, "")
+	if err != nil {
+		log.Fatalf("Failed to create RAR reader for %s: %v", cbrFile, err)
+	}
+
+	// Create a new PDF document
+	pdf := gofpdf.New("P", "mm", "A4", "")
+
+	// Iterate through the files in the archive
+	for {
+		hdr, err := rardecoder.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatalf("Failed to read file from CBR %s: %v", cbrFile, err)
+		}
+
+		if err := addImageToPDF(pdf, hdr.Name, rardecoder); err != nil {
+			log.Printf("Failed to add image from %s: %v", hdr.Name, err)
+		}
+	}
+
+	// Save the PDF with the same name as the CBR file
+	pdfFileName := cbrFile[:len(cbrFile)-len(filepath.Ext(cbrFile))] + ".pdf"
+	if err := pdf.OutputFileAndClose(pdfFileName); err != nil {
+		log.Fatalf("Failed to save PDF file %s: %v", pdfFileName, err)
+	}
+
+	fmt.Printf("Converted %s to %s\n", cbrFile, pdfFileName)
+}
+
+func convertCBRToEPUB(cbrFile string) {
+	// Open the CBR file as a RAR archive
+	r, err := os.Open(cbrFile)
+	if err != nil {
+		log.Fatalf("Failed to open CBR file %s: %v", cbrFile, err)
+	}
+	defer r.Close()
+
+	rardecoder, err := rardecode.NewReader(r, "")
+	if err != nil {
+		log.Fatalf("Failed to create RAR reader for %s: %v", cbrFile, err)
+	}
+
+	// Create a new EPUB document
+	e := epub.NewEpub(cbrFile)
+
+	// Store temporary file paths for cleanup
+	tmpFiles := []string{}
+
+	// Iterate through the files in the archive
+	for {
+		hdr, err := rardecoder.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatalf("Failed to read file from CBR %s: %v", cbrFile, err)
+		}
+
+		tmpFile, err := addImageToEPUB(e, hdr.Name, rardecoder)
+		if err != nil {
+			log.Printf("Failed to add image from %s: %v", hdr.Name, err)
+		} else {
+			tmpFiles = append(tmpFiles, tmpFile)
+		}
+	}
+
+	// Save the EPUB with the same name as the CBR file
+	epubFileName := cbrFile[:len(cbrFile)-len(filepath.Ext(cbrFile))] + ".epub"
+	if err := e.Write(epubFileName); err != nil {
+		log.Fatalf("Failed to save EPUB file %s: %v", epubFileName, err)
+	}
+
+	fmt.Printf("Converted %s to %s\n", cbrFile, epubFileName)
+
+	// Clean up temporary files
+	for _, tmpFile := range tmpFiles {
+		os.Remove(tmpFile)
+	}
+}
+
+func addImageToPDF(pdf *gofpdf.Fpdf, fileName string, reader io.Reader) error {
 	// Create a new page in the PDF
 	pdf.AddPage()
 
 	// Register the image
 	imgOptions := gofpdf.ImageOptions{ImageType: "JPEG", ReadDpi: true}
-	pdf.RegisterImageOptionsReader(file.Name, imgOptions, fileReader)
+	pdf.RegisterImageOptionsReader(fileName, imgOptions, reader)
 
 	// Add the image to the page
-	pdf.ImageOptions(file.Name, 10, 10, 190, 0, false, imgOptions, 0, "")
+	pdf.ImageOptions(fileName, 10, 10, 190, 0, false, imgOptions, 0, "")
 
 	return nil
 }
 
-func addImageToEPUB(e *epub.Epub, file *zip.File) (string, error) {
-	// Open the file inside the ZIP archive
-	fileReader, err := file.Open()
-	if err != nil {
-		return "", fmt.Errorf("failed to open file %s: %w", file.Name, err)
-	}
-	defer fileReader.Close()
-
+func addImageToEPUB(e *epub.Epub, fileName string, reader io.Reader) (string, error) {
 	// Create a temporary file to store the image
 	tmpFile, err := ioutil.TempFile("", "image-*.jpg")
 	if err != nil {
@@ -140,31 +257,31 @@ func addImageToEPUB(e *epub.Epub, file *zip.File) (string, error) {
 	}
 
 	// Copy the image to the temporary file
-	if _, err := io.Copy(tmpFile, fileReader); err != nil {
+	if _, err := io.Copy(tmpFile, reader); err != nil {
 		tmpFile.Close()
 		return "", fmt.Errorf("failed to copy image to temporary file: %w", err)
 	}
 	tmpFile.Close()
 
 	// Add the image to the EPUB
-	imgPath, err := e.AddImage(tmpFile.Name(), file.Name)
+	imgPath, err := e.AddImage(tmpFile.Name(), fileName)
 	if err != nil {
-		return "", fmt.Errorf("failed to add image %s to EPUB: %w", file.Name, err)
+		return "", fmt.Errorf("failed to add image %s to EPUB: %w", fileName, err)
 	}
 
 	// Add a section with the image
-	_, err = e.AddSection(fmt.Sprintf(`<img src="%s"/>`, imgPath), file.Name, "", "")
+	_, err = e.AddSection(fmt.Sprintf(`<img src="%s"/>`, imgPath), fileName, "", "")
 	if err != nil {
-		return "", fmt.Errorf("failed to add section for image %s: %w", file.Name, err)
+		return "", fmt.Errorf("failed to add section for image %s: %w", fileName, err)
 	}
 
 	return tmpFile.Name(), nil
 }
 
-func convertEPUBToMOBI(cbzFile string) {
+func convertEPUBToMOBI(file string) {
 	// Convert EPUB to MOBI using an external tool like Calibre's ebook-convert
-	epubFileName := cbzFile[:len(cbzFile)-len(filepath.Ext(cbzFile))] + ".epub"
-	mobiFileName := cbzFile[:len(cbzFile)-len(filepath.Ext(cbzFile))] + ".mobi"
+	epubFileName := file[:len(file)-len(filepath.Ext(file))] + ".epub"
+	mobiFileName := file[:len(file)-len(filepath.Ext(file))] + ".mobi"
 
 	cmd := exec.Command("ebook-convert", epubFileName, mobiFileName)
 	if err := cmd.Run(); err != nil {

@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/bmaupin/go-epub v1.1.0
 	github.com/jung-kurt/gofpdf v1.16.2
+	github.com/nwaples/rardecode v1.1.3
 )
 
 require (

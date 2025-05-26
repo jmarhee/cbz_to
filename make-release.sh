@@ -13,8 +13,8 @@ curl -X POST \
   "https://api.github.com/repos/$REPO_NAME/releases" \
   -d "{
     \"tag_name\": \"$TAG\",
-    \"name\": \"Release $TAG\",
-    \"body\": \"Release notes for $TAG_COMMIT\",
+    \"body\": \"Release notes for $TAG\",
+    \"generate_release_notes\":true,
     \"draft\": false,
     \"prerelease\": false
   }"
