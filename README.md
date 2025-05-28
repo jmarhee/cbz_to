@@ -1,6 +1,6 @@
 # cbz_to
 
-CLI to convert .cbz files to .epub,.pdf, or .mobi.
+CLI to convert .cbz (and as of v0.2.0, .cbr) files to .epub,.pdf, or .mobi.
 
 ## Usage
 
